@@ -3,8 +3,13 @@
  * (http://wiki.openstreetmap.org/wiki/Overpass_turbo/Extended_Overpass_Queries)
  */
 
-var Promise = require('promise'),
-    request = require('request-promise');
+var Promise = require('promise');
+let fetch;
+try {
+  fetch = require('node-fetch');
+} catch (e) {
+  fetch = global.fetch;
+}
 
 // converts relative time to ISO time string
 function relativeTime(instr, callback) {
@@ -19,73 +24,74 @@ function relativeTime(instr, callback) {
   switch (instr[2]) {
     case "second":
     case "seconds":
-    interval=1; break;
+      interval = 1; break;
     case "minute":
     case "minutes":
-    interval=60; break;
+      interval = 60; break;
     case "hour":
     case "hours":
-    interval=3600; break;
+      interval = 3600; break;
     case "day":
     case "days":
     default:
-    interval=86400; break;
+      interval = 86400; break;
     case "week":
     case "weeks":
-    interval=604800; break;
+      interval = 604800; break;
     case "month":
     case "months":
-    interval=2628000; break;
+      interval = 2628000; break;
     case "year":
     case "years":
-    interval=31536000; break;
+      interval = 31536000; break;
   }
-  var date = now - count*interval*1000;
+  var date = now - count * interval * 1000;
   return Promise.resolve((new Date(date)).toISOString());
 }
 
 // Promise wrapper for browser XMLHttpRequest
 // from http://www.html5rocks.com/en/tutorials/es6/promises/
 function get(url) {
-  return new Promise(function(resolve, reject) {
+  return new Promise(function (resolve, reject) {
     var req = new XMLHttpRequest();
     req.open('GET', url);
 
-    req.onload = function() {
+    req.onload = function () {
       if (req.status == 200) {
         resolve(req.response);
       }
       else {
-        reject(Error("XMLHttpRequest Error: "+req.statusText));
+        reject(Error("XMLHttpRequest Error: " + req.statusText));
       }
     };
-    req.onerror = function() {
+    req.onerror = function () {
       reject(Error("Network Error"));
     };
     req.send();
   });
 }
 // helper function to query nominatim for best fitting result
-function nominatimRequest(search,filter) {
-  var requestUrl = "https://nominatim.openstreetmap.org/search?format=json&q="+encodeURIComponent(search);
+function nominatimRequest(search, filter) {
+  var requestUrl = "https://nominatim.openstreetmap.org/search?format=json&q=" + encodeURIComponent(search);
   var _request;
   if (typeof XMLHttpRequest !== "undefined") {
     // browser
     _request = get(requestUrl).then(JSON.parse);
   } else {
     // node
-    _request = request({
-      url: requestUrl,
+    _request = fetch(requestUrl, {
       method: "GET",
-      headers: {"User-Agent": "overpass-wizard"},
-      json: true
+      headers: { "User-Agent": "overpass-wizard" }
+    }).then(res => {
+      if (!res.ok) throw new Error("Network response was not ok");
+      return res.json();
     });
   }
-  return _request.then(function(data) {
+  return _request.then(function (data) {
     if (filter)
       data = data.filter(filter);
     if (data.length === 0)
-      return Promise.reject(new Error("No result found for geocoding search: "+search));
+      return Promise.reject(new Error("No result found for geocoding search: " + search));
     else
       return data[0];
   });
@@ -94,21 +100,21 @@ function nominatimRequest(search,filter) {
 // geocoding shortcuts
 function geocodeArea(instr) {
   function filter(n) {
-    return n.osm_type && n.osm_id && n.osm_type!=="node";
+    return n.osm_type && n.osm_id && n.osm_type !== "node";
   }
-  return nominatimRequest(instr,filter).then(function(res) {
-    var area_ref = 1*res.osm_id;
+  return nominatimRequest(instr, filter).then(function (res) {
+    var area_ref = 1 * res.osm_id;
     if (res.osm_type == "way")
       area_ref += 2400000000;
     if (res.osm_type == "relation")
       area_ref += 3600000000;
-    res = "area("+area_ref+")";
+    res = "area(" + area_ref + ")";
     return res;
   });
 }
 function geocodeCoords(instr) {
-  return nominatimRequest(instr).then(function(res) {
-    res = res.lat+','+res.lon;
+  return nominatimRequest(instr).then(function (res) {
+    res = res.lat + ',' + res.lon;
     return res;
   });
 }
@@ -119,16 +125,16 @@ var expansions = {
   geocodeCoords: geocodeCoords
 };
 
-module.exports = function(overpassQuery, bbox, callback) {
+module.exports = function (overpassQuery, bbox, callback) {
   // 1. bbox
   if (bbox) overpassQuery = overpassQuery.replace(/{{bbox}}/g, bbox);
   // 2. constants
   var constantRegexp = "{{([a-zA-Z0-9_]+)=(.+?)}}";
   var constants = overpassQuery.match(new RegExp(constantRegexp, 'g')) || [];
-  constants.forEach(function(constant) {
+  constants.forEach(function (constant) {
     var constantDefinition = constant.match(new RegExp(constantRegexp)),
-        constantShortcut = "{{"+constantDefinition[1]+"}}",
-        constantValue = constantDefinition[2];
+      constantShortcut = "{{" + constantDefinition[1] + "}}",
+      constantValue = constantDefinition[2];
     while (overpassQuery.indexOf(constantShortcut) >= 0) {
       overpassQuery = overpassQuery.replace(constantShortcut, constantValue);
     }
@@ -136,17 +142,17 @@ module.exports = function(overpassQuery, bbox, callback) {
   // 3. shortcuts
   var shortcutRegexp = "{{(date|geocodeArea|geocodeCoords):([\\s\\S]*?)}}";
   var shortcuts = overpassQuery.match(new RegExp(shortcutRegexp, 'g')) || [];
-  return Promise.all(shortcuts.map(function(shortcut) {
+  return Promise.all(shortcuts.map(function (shortcut) {
     shortcut = shortcut.match(new RegExp(shortcutRegexp));
     return expansions[shortcut[1]](shortcut[2]);
-  })).then(function(expansions) {
-    expansions.forEach(function(expansion, index) {
+  })).then(function (expansions) {
+    expansions.forEach(function (expansion, index) {
       overpassQuery = overpassQuery.replace(shortcuts[index], expansion);
     });
     return overpassQuery;
-  }).then(function(overpassQuery) {
+  }).then(function (overpassQuery) {
     callback(undefined, overpassQuery)
-  }).catch(function(err) {
+  }).catch(function (err) {
     callback(err);
   });
 };

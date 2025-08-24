@@ -28,17 +28,14 @@
   },
   "dependencies": {
     "concat-stream": "~1.0.1",
+    "node-fetch": "^2.6.7",
+    "overpass-wizard": "^0.0.9",
     "promise": "^7.1.1",
-    "request": "^2.88.0",
-    "request-promise": "^4.2.5",
     "yargs": "^3.32.0"
   },
   "devDependencies": {
     "expect.js": "^0.3.1",
-    "mocha": "^7.0.1",
+    "mocha": "^11.7.1",
     "pegjs": "^0.10.0"
-  },
-  "browser": {
-    "request-promise": false
   }
 }

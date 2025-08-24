@@ -1,17 +1,27 @@
+
+
 var process = require('process');
 var express = require('express');
 var wizard = require('../index');
+var expand = require('../expand');
 var package = require('../package.json');
 
 var app = express();
 
-app.get('/wizard/version', function(req, res) {
+// Add route for /overpass-wizard to fix 404 error
+app.get('/overpass-wizard', function (req, res) {
+  res.set('Content-Type', 'text/plain');
+  res.send('overpass-wizard endpoint is working.');
+});
+
+app.get('/wizard/version', function (req, res) {
   res.set('Content-Type', 'text/plain');
   res.send(package.version);
 });
-app.get('/wizard', function(req, res) {
+
+app.get('/wizard', function (req, res) {
   // parse boolean values
-  Object.keys(req.query).forEach(function(key) {
+  Object.keys(req.query).forEach(function (key) {
     if (req.query[key] === 'false') {
       req.query[key] = false;
     } else if (req.query[key] === 'true') {
@@ -26,11 +36,28 @@ app.get('/wizard', function(req, res) {
     res.status(400);
     res.send('couldn\'t parse wizard input');
   } else {
-    res.send(result);
+    // Check if expansion should be performed (default: true)
+    var shouldExpand = req.query.expand !== false && req.query.expand !== 'false';
+
+    if (shouldExpand) {
+      // expand shortcuts like {{geocodeCoords:...}}, {{geocodeArea:...}}, etc.
+      expand(result, req.query.bbox, function (err, expandedQuery) {
+        if (err) {
+          console.error('Expansion error:', err);
+          res.status(500);
+          res.send('Error expanding query: ' + err.message);
+        } else {
+          res.send(expandedQuery);
+        }
+      });
+    } else {
+      // send unexpanded query
+      res.send(result);
+    }
   }
 });
 
 var port = process.env.PORT || 3000;
-app.listen(port, function() {
+app.listen(port, function () {
   console.log('overpass-wizard-server is running on port ' + port);
 });
